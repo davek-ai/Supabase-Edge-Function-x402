@@ -9,6 +9,7 @@ import "buffer-polyfill"
 // Now import x402 SDK after Buffer is set up
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import * as x402 from "@coinbase/x402"
+import { createClient } from "supabase"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -731,79 +732,70 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
-  // Debug endpoint to check API credentials (remove in production)
-  // Access via: GET /functions/v1/x402-payment_hotel?debug=true
+  // Debug endpoint to return PDF URL from Supabase storage
+  // Access via: GET /functions/v1/x402-payment?debug=true
   const url = new URL(req.url)
   if (req.method === 'GET' && url.searchParams.get('debug') === 'true') {
-    const cdpApiKeyId = Deno.env.get('CDP_API_KEY_ID')
-    const cdpApiKeySecret = Deno.env.get('CDP_API_KEY_SECRET')
-    const cdpApiKey = Deno.env.get('CDP_API_KEY')
-    
-    // Try to create facilitator to test if it works
-    let facilitatorTest: any = null
-    let facilitatorTestError: string | null = null
-    let facilitatorMethods: string[] = []
-    
-    if (cdpApiKeyId && cdpApiKeySecret && x402.createFacilitatorConfig) {
-      try {
-        facilitatorTest = x402.createFacilitatorConfig(cdpApiKeyId, cdpApiKeySecret)
-        facilitatorMethods = facilitatorTest ? Object.keys(facilitatorTest) : []
-      } catch (error: any) {
-        facilitatorTestError = error?.message || String(error)
+    try {
+      // Create Supabase client
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_ANON_KEY')!
+      const supabase = createClient(supabaseUrl, supabaseKey)
+      
+      // Get bucket name and file path from environment variables or use defaults
+      const pdfBucket = Deno.env.get('PDF_STORAGE_BUCKET') || 'pdf'
+      const pdfFileName = Deno.env.get('PDF_FILE_NAME') || 'files/x402.pdf'
+      
+      // List files in bucket for debugging
+      const { data: listData, error: listError } = await supabase.storage
+        .from(pdfBucket)
+        .list()
+      
+      // Get signed URL for the PDF file (works with both public and private buckets)
+      // Expires in 1 hour (3600 seconds)
+      const { data: urlData, error: urlError } = await supabase.storage
+        .from(pdfBucket)
+        .createSignedUrl(pdfFileName, 3600)
+      
+      if (urlError) {
+        console.error('Error creating signed URL:', urlError)
+        return new Response(
+          JSON.stringify({ 
+            error: 'Failed to create PDF URL', 
+            details: urlError.message,
+            bucket: pdfBucket,
+            fileName: pdfFileName,
+            availableFiles: listError ? 'Could not list files' : (listData?.map(f => f.name) || [])
+          }),
+          {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 500,
+          },
+        )
       }
-    }
-    
-    const debugInfo = {
-      credentials_status: {
-        CDP_API_KEY_ID: {
-          present: !!cdpApiKeyId,
-          length: cdpApiKeyId?.length || 0,
-          preview: cdpApiKeyId ? `${cdpApiKeyId.substring(0, 8)}...` : null
+      
+      return new Response(
+        JSON.stringify({ 
+          pdfUrl: urlData.signedUrl,
+          bucket: pdfBucket,
+          fileName: pdfFileName,
+          availableFiles: listError ? 'Could not list files' : (listData?.map(f => f.name) || [])
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200,
         },
-        CDP_API_KEY_SECRET: {
-          present: !!cdpApiKeySecret,
-          length: cdpApiKeySecret?.length || 0,
-          preview: cdpApiKeySecret ? `${cdpApiKeySecret.substring(0, 8)}...` : null
+      )
+    } catch (error: any) {
+      console.error('Error getting PDF URL:', error)
+      return new Response(
+        JSON.stringify({ error: 'Internal server error', message: error.message }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 500,
         },
-        CDP_API_KEY: {
-          present: !!cdpApiKey,
-          length: cdpApiKey?.length || 0,
-          preview: cdpApiKey ? `${cdpApiKey.substring(0, 8)}...` : null
-        }
-      },
-      facilitator_creation_test: {
-        attempted: !!(cdpApiKeyId && cdpApiKeySecret && x402.createFacilitatorConfig),
-        success: !!facilitatorTest,
-        error: facilitatorTestError,
-        facilitator_type: facilitatorTest ? typeof facilitatorTest : null,
-        facilitator_keys: facilitatorMethods,
-        has_verify: facilitatorTest ? typeof facilitatorTest.verify === 'function' : false,
-        has_settle: facilitatorTest ? typeof facilitatorTest.settle === 'function' : false,
-        all_methods: facilitatorTest 
-          ? Object.keys(facilitatorTest).filter(k => typeof facilitatorTest[k] === 'function')
-          : []
-      },
-      recommendation: (!cdpApiKeyId || !cdpApiKeySecret) 
-        ? 'Set CDP_API_KEY_ID and CDP_API_KEY_SECRET using: supabase secrets set CDP_API_KEY_ID=your_key_id CDP_API_KEY_SECRET=your_key_secret'
-        : facilitatorTest && typeof facilitatorTest.verify === 'function' && typeof facilitatorTest.settle === 'function'
-          ? '✅ Everything is working! Facilitator created successfully with verify() and settle() methods.'
-          : facilitatorTest
-            ? '⚠️ Facilitator created but verify/settle methods not found. Check facilitator_keys above.'
-            : '⚠️ Failed to create facilitator. Check error message above.',
-      x402_package: {
-        has_createFacilitatorConfig: typeof x402.createFacilitatorConfig === 'function',
-        has_facilitator: !!x402.facilitator,
-        facilitator_keys: x402.facilitator ? Object.keys(x402.facilitator) : []
-      }
+      )
     }
-    
-    return new Response(
-      JSON.stringify(debugInfo, null, 2),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200,
-      },
-    )
   }
 
   try {
@@ -939,7 +931,6 @@ serve(async (req) => {
     const responseHeaders = new Headers()
     responseHeaders.set('Access-Control-Allow-Origin', '*')
     responseHeaders.set('Access-Control-Expose-Headers', 'X-PAYMENT-RESPONSE')
-    responseHeaders.set('Content-Type', 'text/plain')
     responseHeaders.set('X-Payment-Status', 'verified')
     
     // Set X-PAYMENT-RESPONSE header if settlement succeeded
@@ -983,13 +974,82 @@ serve(async (req) => {
       settlementError: verificationResult.settlementResult?.errorMessage || null
     })
     
-    return new Response(
-      'Welcome to x402 using Supabase Edge Functions by https://x.com/davek_btc/',
-      {
-        headers: responseHeaders,
-        status: 200,
-      },
-    )
+    // Get PDF URL from Supabase storage
+    try {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_ANON_KEY')!
+      const supabase = createClient(supabaseUrl, supabaseKey)
+      
+      // Get bucket name and file path from environment variables or use defaults
+      const pdfBucket = Deno.env.get('PDF_STORAGE_BUCKET') || 'pdf'
+      const pdfFileName = Deno.env.get('PDF_FILE_NAME') || 'files/x402.pdf'
+      
+      console.log(`Attempting to get PDF from bucket: ${pdfBucket}, file: ${pdfFileName}`)
+      
+      // First, try to list files in the bucket to help debug
+      const { data: listData, error: listError } = await supabase.storage
+        .from(pdfBucket)
+        .list()
+      
+      if (listError) {
+        console.error('Error listing files in bucket:', listError)
+        console.error('Bucket might not exist or be accessible')
+      } else {
+        console.log(`Files in bucket '${pdfBucket}':`, listData?.map(f => f.name) || [])
+      }
+      
+      // Get signed URL for the PDF file (works with both public and private buckets)
+      // Expires in 1 hour (3600 seconds)
+      const { data: urlData, error: urlError } = await supabase.storage
+        .from(pdfBucket)
+        .createSignedUrl(pdfFileName, 3600)
+      
+      if (urlError) {
+        console.error('Error creating signed URL:', urlError)
+        console.error(`Bucket: ${pdfBucket}, File: ${pdfFileName}`)
+        
+        // Try to provide helpful error message
+        let errorMessage = urlError.message
+        if (listData && listData.length > 0) {
+          errorMessage += `\n\nAvailable files in bucket: ${listData.map(f => f.name).join(', ')}`
+        }
+        
+        // Fallback to welcome message if PDF URL fails
+        responseHeaders.set('Content-Type', 'text/plain')
+        return new Response(
+          'Welcome to x402 using Supabase Edge Functions by https://x.com/davek_btc/\n\nError retrieving PDF: ' + errorMessage,
+          {
+            headers: responseHeaders,
+            status: 200,
+          },
+        )
+      }
+      
+      // Return PDF URL as JSON
+      responseHeaders.set('Content-Type', 'application/json')
+      return new Response(
+        JSON.stringify({ 
+          pdfUrl: urlData.signedUrl,
+          expiresIn: '1 hour',
+          message: 'PDF URL expires in 1 hour'
+        }),
+        {
+          headers: responseHeaders,
+          status: 200,
+        },
+      )
+    } catch (error: any) {
+      console.error('Error getting PDF URL:', error)
+      // Fallback to welcome message if PDF URL fails
+      responseHeaders.set('Content-Type', 'text/plain')
+      return new Response(
+        'Welcome to x402 using Supabase Edge Functions by https://x.com/davek_btc/\n\nError retrieving PDF: ' + error.message,
+        {
+          headers: responseHeaders,
+          status: 200,
+        },
+      )
+    }
   } catch (error) {
     console.error('Function error:', error)
     return new Response(
