@@ -25,36 +25,20 @@ This implementation consists of two main components:
 
 ### How It Works
 
-```
-┌─────────┐                    ┌──────────────┐                    ┌─────────────┐
-│ Client  │                    │ Supabase     │                    │ Coinbase    │
-│         │                    │ Edge Func    │                    │ Facilitator │
-└────┬────┘                    └──────┬───────┘                    └──────┬──────┘
-     │                                 │                                  │
-     │ 1. GET /x402-payment            │                                  │
-     ├────────────────────────────────>│                                  │
-     │                                 │                                  │
-     │ 2. 402 Payment Required         │                                  │
-     │    (with payment requirements)  │                                  │
-     │<────────────────────────────────┤                                  │
-     │                                 │                                  │
-     │ 3. Create payment authorization │                                  │
-     │    (signed with wallet)         │                                  │
-     │                                 │                                  │
-     │ 4. GET /x402-payment            │                                  │
-     │    + X-Payment header           │                                  │
-     ├────────────────────────────────>│                                  │
-     │                                 │                                  │
-     │                                 │ 5. Verify payment               │
-     │                                 ├─────────────────────────────────>│
-     │                                 │                                  │
-     │                                 │ 6. Settlement result            │
-     │                                 │<─────────────────────────────────┤
-     │                                 │                                  │
-     │ 7. 200 OK + Resource           │                                  │
-     │    (PDF signed URL)            │                                  │
-     │<────────────────────────────────┤                                  │
-     │                                 │                                  │
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Supabase as Supabase<br>Edge Func
+    participant Coinbase as Coinbase<br>Facilitator
+
+    Client->>Supabase: 1. GET /x402-payment
+    Supabase-->>Client: 2. 402 Payment Required<br>(with payment requirements)
+    Note over Client: 3. Create payment authorization<br>(signed with wallet)
+    Client->>Supabase: 4. GET /x402-payment<br>+ X-Payment header
+    Supabase->>Coinbase: 5. Verify payment
+    Coinbase-->>Supabase: 6. Settlement result
+    Supabase-->>Client: 7. 200 OK + Resource<br>(PDF signed URL)
+
 ```
 
 ### Key Features
