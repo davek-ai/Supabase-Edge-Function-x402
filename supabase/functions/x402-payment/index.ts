@@ -282,7 +282,7 @@ async function verifyPayment(paymentPayload: string, resourceUrl?: string): Prom
       network: network,
       maxAmountRequired: paymentReq.amount ? (parseFloat(paymentReq.amount) * 1000000).toString() : '10000',
       resource: resourceUrl || Deno.env.get('RESOURCE_URL') || 'https://x402.org/resource',
-      description: 'Payment for resource access',
+      description: 'Access protected PDF resources via x402 payment. Pay once to receive a signed URL to download the PDF file.',
       // Use the authorization's 'to' address to ensure exact match
       payTo: paymentData.payload?.authorization?.to || paymentReq.destination,
       maxTimeoutSeconds: 60,
@@ -297,6 +297,37 @@ async function verifyPayment(paymentPayload: string, resourceUrl?: string): Prom
         // Add gasLimit for testnet as workaround for gas estimation issues
         // (per GitHub issue: https://github.com/coinbase/x402/issues/...)
         ...(isTestnet && { gasLimit: '10000000000000' })
+      },
+      // x402 Bazaar discovery metadata - discoverable flag must be in outputSchema.input
+      outputSchema: {
+        input: {
+          method: 'GET',
+          type: 'http',
+          discoverable: true  // This makes your endpoint discoverable in the x402 Bazaar
+        },
+        output: {
+          type: 'object',
+          properties: {
+            pdfUrl: {
+              type: 'string',
+              description: 'Signed URL to download the PDF file (expires in 1 hour)'
+            },
+            expiresIn: {
+              type: 'string',
+              description: 'Time until the signed URL expires'
+            },
+            message: {
+              type: 'string',
+              description: 'Human-readable message about the PDF URL'
+            }
+          },
+          required: ['pdfUrl']
+        }
+      },
+      metadata: {
+        serviceName: 'x402-payment',
+        category: 'file-access',
+        tags: ['pdf', 'file-download', 'supabase', 'storage']
       }
     }
 
@@ -859,7 +890,7 @@ serve(async (req) => {
       // Get USDC config for the network
       const usdcConfig = getUsdcConfig(PAYMENT_REQUIREMENTS.network)
       
-      // Return HTTP 402 Payment Required in standard x402 format
+      // Return HTTP 402 Payment Required in standard x402 format with Bazaar metadata
       const paymentResponse = {
         x402Version: 1,
         error: 'Payment required to access this resource',
@@ -868,7 +899,7 @@ serve(async (req) => {
           network: PAYMENT_REQUIREMENTS.network,
           maxAmountRequired: (parseFloat(PAYMENT_REQUIREMENTS.amount) * 1000000).toString(), // Convert to smallest units
           resource: resourceUrl,
-          description: 'Payment for resource access',
+          description: 'Access protected PDF resources via x402 payment. Pay once to receive a signed URL to download the PDF file.',
           mimeType: 'application/json',
           payTo: PAYMENT_REQUIREMENTS.destination,
           maxTimeoutSeconds: 60,
@@ -876,6 +907,37 @@ serve(async (req) => {
           extra: {
             name: usdcConfig.name,
             version: '2'
+          },
+          // x402 Bazaar discovery metadata - discoverable flag must be in outputSchema.input
+          outputSchema: {
+            input: {
+              method: 'GET',
+              type: 'http',
+              discoverable: true  // This makes your endpoint discoverable in the x402 Bazaar
+            },
+            output: {
+              type: 'object',
+              properties: {
+                pdfUrl: {
+                  type: 'string',
+                  description: 'Signed URL to download the PDF file (expires in 1 hour)'
+                },
+                expiresIn: {
+                  type: 'string',
+                  description: 'Time until the signed URL expires'
+                },
+                message: {
+                  type: 'string',
+                  description: 'Human-readable message about the PDF URL'
+                }
+              },
+              required: ['pdfUrl']
+            }
+          },
+          metadata: {
+            serviceName: 'x402-payment',
+            category: 'file-access',
+            tags: ['pdf', 'file-download', 'supabase', 'storage']
           }
         }]
       }
@@ -923,7 +985,7 @@ serve(async (req) => {
         errorMessage = `Payment verification failed: ${invalidReason}`
       }
       
-      // Return HTTP 402 Payment Required in standard x402 format
+      // Return HTTP 402 Payment Required in standard x402 format with Bazaar metadata
       // Get USDC config for the network
       const usdcConfig = getUsdcConfig(PAYMENT_REQUIREMENTS.network)
       
@@ -935,7 +997,7 @@ serve(async (req) => {
           network: PAYMENT_REQUIREMENTS.network,
           maxAmountRequired: (parseFloat(PAYMENT_REQUIREMENTS.amount) * 1000000).toString(), // Convert to smallest units
           resource: resourceUrl,
-          description: 'Payment for resource access',
+          description: 'Access protected PDF resources via x402 payment. Pay once to receive a signed URL to download the PDF file.',
           mimeType: 'application/json',
           payTo: PAYMENT_REQUIREMENTS.destination,
           maxTimeoutSeconds: 60,
@@ -943,6 +1005,37 @@ serve(async (req) => {
           extra: {
             name: usdcConfig.name,
             version: '2'
+          },
+          // x402 Bazaar discovery metadata - discoverable flag must be in outputSchema.input
+          outputSchema: {
+            input: {
+              method: 'GET',
+              type: 'http',
+              discoverable: true  // This makes your endpoint discoverable in the x402 Bazaar
+            },
+            output: {
+              type: 'object',
+              properties: {
+                pdfUrl: {
+                  type: 'string',
+                  description: 'Signed URL to download the PDF file (expires in 1 hour)'
+                },
+                expiresIn: {
+                  type: 'string',
+                  description: 'Time until the signed URL expires'
+                },
+                message: {
+                  type: 'string',
+                  description: 'Human-readable message about the PDF URL'
+                }
+              },
+              required: ['pdfUrl']
+            }
+          },
+          metadata: {
+            serviceName: 'x402-payment',
+            category: 'file-access',
+            tags: ['pdf', 'file-download', 'supabase', 'storage']
           }
         }]
       }
