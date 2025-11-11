@@ -65,6 +65,13 @@ sequenceDiagram
 
 ### Part 1: Deploy the Supabase Function
 
+#### Step 0: Clone the Repository
+
+```bash
+git clone https://github.com/davek-ai/Supabase-Edge-Function-x402.git
+cd Supabase-Edge-Function-x402
+```
+
 #### Step 1: Install Supabase CLI and Login
 
 ```bash
@@ -75,7 +82,6 @@ supabase login
 #### Step 2: Link Your Project
 
 ```bash
-cd "Supabase Edge Func x402"
 supabase link --project-ref your-project-ref
 ```
 
